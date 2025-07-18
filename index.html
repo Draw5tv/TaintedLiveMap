@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Farm Sim 22 LiveMap</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background: #111;
+      color: white;
+      overflow: hidden;
+    }
+
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 2;
+    }
+
+    #map-wrapper {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #map-container {
+      width: 2048px;
+      height: 2048px;
+      background: url('map.jpg') no-repeat center center;
+      background-size: cover;
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: top left;
+    }
+
+    .marker {
+      width: 24px;
+      height: 24px;
+      background: red;
+      border-radius: 50%;
+      position: absolute;
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+    }
+
+    .player {
+      background: url('https://img.icons8.com/emoji/48/000000/bust-in-silhouette.png') no-repeat center;
+      background-size: contain;
+    }
+
+    .vehicle {
+      background: url('https://img.icons8.com/emoji/48/000000/tractor.png') no-repeat center;
+      background-size: contain;
+    }
+
+    .tooltip {
+      position: absolute;
+      background: #222;
+      color: #fff;
+      padding: 5px 8px;
+      font-size: 12px;
+      border-radius: 5px;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 3;
+    }
+  </style>
+</head>
+<body>
+  <div id="info">Loading...</div>
+  <div id="map-wrapper">
+    <div id="map-container"></div>
+  </div>
+  <div id="tooltip" class="tooltip" style="display: none;"></div>
+
+  <script>
+    const XML_URL = "http://your-server-ip/livemap_data.xml"; // CHANGE THIS
+    const mapContainer = document.getElementById("map-container");
+    const infoBox = document.getElementById("info");
+    const tooltip = document.getElementById("tooltip");
+
+    let zoom = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+    let isDragging = false;
+    let startX, startY;
+
+    function convertCoords(x, z) {
+      const px = ((x + 2048) / 4096) * 2048;
+      const py = ((z + 2048) / 4096) * 2048;
+      return [px, py];
+    }
+
+    function updateMap() {
+      fetch(XML_URL)
+        .then(res => res.text())
+        .then(str => (new window.DOMParser()).parseFromString(str, "text/xml"))
+        .then(data => {
+          const players = [...data.getElementsByTagName("player")];
+          const vehicles = [...data.getElementsByTagName("vehicle")];
+          const weather = data.getElementsByTagName("weather")[0]?.getAttribute("current");
+          const time = data.getElementsByTagName("time")[0]?.getAttribute("ingameTime");
+          const money = data.getElementsByTagName("money")[0]?.getAttribute("value");
+
+          mapContainer.innerHTML = "";
+
+          // Display info
+          infoBox.innerHTML = `
+            <strong>Time:</strong> ${time || "N/A"}<br>
+            <strong>Weather:</strong> ${weather || "N/A"}<br>
+            <strong>Money:</strong> $${money || "0"}<br>
+            <strong>Players:</strong> ${players.length}<br>
+            <strong>Vehicles:</strong> ${vehicles.length}
+          `;
+
+          // Players
+          players.forEach(p => {
+            const name = p.getAttribute("name");
+            const [x, z] = [parseFloat(p.getAttribute("x")), parseFloat(p.getAttribute("z"))];
+            const [px, py] = convertCoords(x, z);
+
+            const el = document.createElement("div");
+            el.className = "marker player";
+            el.style.left = `${px}px`;
+            el.style.top = `${py}px`;
+            el.onmouseenter = () => showTooltip(`${name}`, px, py);
+            el.onmouseleave = () => hideTooltip();
+            mapContainer.appendChild(el);
+          });
+
+          // Vehicles
+          vehicles.forEach(v => {
+            const name = v.getAttribute("name");
+            const [x, z] = [parseFloat(v.getAttribute("x")), parseFloat(v.getAttribute("z"))];
+            const [px, py] = convertCoords(x, z);
+
+            const el = document.createElement("div");
+            el.className = "marker vehicle";
+            el.style.left = `${px}px`;
+            el.style.top = `${py}px`;
+            el.onmouseenter = () => showTooltip(`${name}`, px, py);
+            el.onmouseleave = () => hideTooltip();
+            mapContainer.appendChild(el);
+          });
+        })
+        .catch(err => {
+          console.error("Error loading XML:", err);
+        });
+    }
+
+    function showTooltip(text, x, y) {
+      tooltip.innerHTML = text;
+      tooltip.style.display = "block";
+      tooltip.style.left = (x * zoom + offsetX + 20) + "px";
+      tooltip.style.top = (y * zoom + offsetY - 10) + "px";
+    }
+
+    function hideTooltip() {
+      tooltip.style.display = "none";
+    }
+
+    function applyTransform() {
+      mapContainer.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${zoom})`;
+    }
+
+    document.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      zoom = Math.min(Math.max(0.5, zoom + delta), 2.5);
+      applyTransform();
+    });
+
+    document.addEventListener("mousedown", (e) => {
+      isDragging = true;
+      startX = e.clientX - offsetX;
+      startY = e.clientY - offsetY;
+    });
+
+    document.addEventListener("mouseup", () => isDragging = false);
+
+    document.addEventListener("mousemove", (e) => {
+      if (isDragging) {
+        offsetX = e.clientX - startX;
+        offsetY = e.clientY - startY;
+        applyTransform();
+      }
+    });
+
+    updateMap();
+    setInterval(updateMap, 5000);
+  </script>
+</body>
+</html>
